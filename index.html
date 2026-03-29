@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Konata Station Player</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- CSS -->
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/gh/LaionMaou/ks-player-assets@v0.0.0.5/assets/css/style.css">
+  <link rel="stylesheet" href="./css/index.css">
+</head>
+
+<body>
+
+  <header class="page-header">
+    <img
+      class="page-logo"
+      src="https://i.postimg.cc/W4NmH6TS/zyro-image.png"
+      alt="Konata Station"
+    >
+  </header>
+
+  <main class="layout">
+
+    <!-- PLAYER -->
+    <section class="player" aria-label="Reproductor Konata Station">
+      <iframe
+        id="player-frame"
+        class="player-frame"
+        src="player2.0.html"
+        title="KS Player 2.0"
+        loading="lazy">
+      </iframe>
+    </section>
+
+    <!-- DISCORD -->
+    <aside class="discord-box" aria-label="Comunidad Discord">
+
+      <!-- Mobile -->
+      <a
+        class="discord-btn"
+        href="https://discord.com/channels/554128924251258911/1124508279188488282"
+        target="_blank"
+        rel="noopener">
+        💬 Unite a nuestro Discord
+      </a>
+
+      <!-- Desktop -->
+      <iframe
+        id="discord-frame"
+        class="discord-iframe"
+        src="https://e.widgetbot.io/channels/554128924251258911/1124508279188488282"
+        allow="clipboard-write; fullscreen">
+      </iframe>
+
+    </aside>
+
+  </main>
+
+  <footer class="temporary-footer" aria-label="Aviso temporal del sitio">
+    <p>
+      Esta página es una versión temporal, hasta que tengamos el dinero de Twitch y el Ingus pague un host jaja.
+    </p>
+  </footer>
+
+  <script>
+    const playerFrame = document.getElementById('player-frame');
+    const discordFrame = document.getElementById('discord-frame');
+    const MOBILE_MAX_WIDTH = 599;
+    const MOBILE_TABLET_MIN_HEIGHT = 745;
+    const DESKTOP_WIDGET_HEIGHT = 680;
+    let lastFrameHeight = 0;
+    let heightFallbackTimer = 0;
+    let hasReportedHeight = false;
+
+    function resolvePlayerOrigin() {
+      try {
+        const origin = new URL(playerFrame?.getAttribute('src') || '', window.location.href).origin;
+        return origin === 'null' ? window.location.origin : origin;
+      } catch (_) {
+        return window.location.origin;
+      }
+    }
+
+    const PLAYER_ORIGIN = resolvePlayerOrigin();
+
+    function getPlayerMinHeight() {
+      if (window.innerWidth <= MOBILE_MAX_WIDTH) return MOBILE_TABLET_MIN_HEIGHT;
+      if (window.innerWidth >= 900) return DESKTOP_WIDGET_HEIGHT;
+      return 0;
+    }
+
+    function setPlayerFrameHeight(nextHeight) {
+      if (!playerFrame) return;
+
+      const safeHeight = Math.max(getPlayerMinHeight(), Math.ceil(nextHeight || 0));
+      if (Math.abs(safeHeight - lastFrameHeight) < 2) return;
+      lastFrameHeight = safeHeight;
+      playerFrame.style.height = `${safeHeight}px`;
+
+      if (discordFrame && window.innerWidth >= 900) {
+        discordFrame.style.height = `${safeHeight}px`;
+      } else if (discordFrame) {
+        discordFrame.style.height = '';
+      }
+    }
+
+    function measurePlayerFrame() {
+      if (!playerFrame) return;
+
+      const doc = playerFrame.contentDocument || playerFrame.contentWindow?.document;
+      if (!doc) return;
+
+      const html = doc.documentElement;
+      const body = doc.body;
+      const nextHeight = Math.max(
+        body ? body.scrollHeight : 0,
+        body ? body.offsetHeight : 0,
+        html ? html.scrollHeight : 0,
+        html ? html.offsetHeight : 0,
+        getPlayerMinHeight()
+      );
+
+      setPlayerFrameHeight(nextHeight);
+    }
+
+    function requestPlayerHeight() {
+      playerFrame?.contentWindow?.postMessage({ type: 'ksplayer:request-height' }, PLAYER_ORIGIN);
+    }
+
+    function clearFallbackMeasure() {
+      if (!heightFallbackTimer) return;
+      window.clearTimeout(heightFallbackTimer);
+      heightFallbackTimer = 0;
+    }
+
+    function scheduleFallbackMeasure(delay = 600) {
+      clearFallbackMeasure();
+      heightFallbackTimer = window.setTimeout(() => {
+        if (hasReportedHeight) return;
+        measurePlayerFrame();
+      }, delay);
+    }
+
+    window.addEventListener('message', (event) => {
+      if (event.source !== playerFrame?.contentWindow) return;
+      if (event.origin !== PLAYER_ORIGIN) return;
+
+      const data = event.data || {};
+      if (data.sender !== 'ksplayer' || data.type !== 'ksplayer:height') return;
+      if (typeof data.height !== 'number' || !Number.isFinite(data.height)) return;
+
+      hasReportedHeight = true;
+      clearFallbackMeasure();
+      setPlayerFrameHeight(data.height);
+    });
+
+    window.addEventListener('message', async (event) => {
+      if (event.source !== playerFrame?.contentWindow) return;
+      if (event.origin !== PLAYER_ORIGIN) return;
+
+      const data = event.data || {};
+      if (data.sender !== 'ksplayer-native' || data.type !== 'ksplayer:native-request') return;
+
+      const plugin = window.Capacitor?.Plugins?.MediaControls;
+      const reply = (payload) => {
+        playerFrame?.contentWindow?.postMessage(
+          {
+            sender: 'ksplayer-native-host',
+            type: 'ksplayer:native-response',
+            requestId: data.requestId,
+            ...payload,
+          },
+          PLAYER_ORIGIN
+        );
+      };
+
+      if (!plugin || typeof plugin[data.action] !== 'function') {
+        reply({ error: `Native action unavailable: ${data.action || 'unknown'}` });
+        return;
+      }
+
+      try {
+        const result = await plugin[data.action](data.payload || {});
+        reply({ result: result || { ok: true } });
+      } catch (error) {
+        reply({ error: String(error?.message || error || 'Native bridge failed') });
+      }
+    });
+
+    playerFrame?.addEventListener('load', () => {
+      hasReportedHeight = false;
+      requestPlayerHeight();
+      scheduleFallbackMeasure();
+    });
+
+    window.addEventListener('resize', () => {
+      requestPlayerHeight();
+      setPlayerFrameHeight(lastFrameHeight);
+    });
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KS Player 2.0</title>
+
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/icon?family=Material+Icons"
+    />
+    <!-- Preconnect acelera DNS/TLS para el host del stream (mejora primer play en Android) -->
+    <link rel="preconnect" href="https://stream.host-cx.net.ar" crossorigin>
+
+    <!-- CSS principal -->
+    <link rel="stylesheet" href="./css/player-embed.css" />
+    <link rel="preload" href="./css/player.css" as="style" />
+    <link rel="stylesheet" href="./css/player.css" />
+  </head>
+
+  <body>
+    <main class="layout" id="app" data-theme="light">
+      <!-- PLAYER -->
+      <section class="player-card" id="playerCard" data-theme="light">
+        <button
+          class="theme-toggle"
+          id="themeToggle"
+          type="button"
+          aria-label="Cambiar tema"
+          aria-pressed="false"
+        >
+          <span class="material-icons" id="themeIcon">dark_mode</span>
+        </button>
+
+        <figure class="cover">
+          <img
+            id="cover-img"
+            src="https://i.ibb.co/0YDdBgT/bgPlayer.jpg"
+            alt="Portada canción"
+            loading="lazy"
+          />
+        </figure>
+
+        <div class="player-body">
+          <div class="badge" id="source-badge">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="badgeText">AUTO DJ</span>
+          </div>
+
+          <div class="track-info" aria-live="polite">
+            <h3 class="track-title" id="track-title">—</h3>
+            <button
+              class="artist-toggle"
+              id="artistToggle"
+              type="button"
+              aria-expanded="false"
+              aria-label="Mostrar artista completo"
+              title="Toca para ver completo"
+            >
+              <span class="track-artist" id="track-artist">—</span>
+              <span
+                class="material-icons artist-toggle-icon"
+                id="artistIcon"
+                aria-hidden="true"
+                >expand_more</span
+              >
+            </button>
+          </div>
+
+          <div class="controls">
+            <button
+              class="btn-play"
+              id="btn-play"
+              type="button"
+              aria-label="Play/Pause"
+            >
+              <span class="material-icons" id="playIcon">play_arrow</span>
+            </button>
+          </div>
+
+          <div class="volume-row">
+            <button
+              class="icon-button mute-toggle"
+              id="muteToggle"
+              type="button"
+              aria-label="Silenciar"
+              aria-pressed="false"
+            >
+              <span class="material-icons" id="muteIcon" aria-hidden="true"
+                >volume_up</span
+              >
+            </button>
+            <input
+              type="range"
+              id="volume"
+              min="0"
+              max="100"
+              step="1"
+              value="40"
+              aria-label="Volumen"
+            />
+          </div>
+
+          <!-- Aviso cuando se oculta el control de volumen -->
+          <p class="volume-hint" id="volume-hint" hidden>
+            Usa los botones de volumen del dispositivo.
+          </p>
+
+          <!-- Últimas canciones (MÓVIL) -->
+          <section class="last-tracks mobile-only" aria-labelledby="last-tracks-title-mobile">
+            <h4 class="section-title" id="last-tracks-title-mobile">ÚLTIMAS CANCIONES</h4>
+            <ul id="last-tracks-list" aria-live="polite"></ul>
+          </section>
+        </div>
+
+        <div class="signature">KS PLAYER 2.0 BY SRPUNPUN</div>
+
+        <audio id="player" playsinline type="audio/mpeg" preload="none"></audio>
+      </section>
+
+      <!-- Panel lateral (DESKTOP) -->
+      <aside class="history" aria-labelledby="last-tracks-title-desktop">
+        <h3 id="last-tracks-title-desktop">ÚLTIMAS CANCIONES</h3>
+        <div class="queue">
+          <ul id="last-tracks-list-desktop" aria-live="polite"></ul>
+        </div>
+      </aside>
+    </main>
+
+    <script src="./js/player-core.js" defer></script>
+    <script src="./js/player-device.js" defer></script>
+    <script src="./js/player-height.js" defer></script>
+    <script src="./js/player-native.js" defer></script>
+    <script src="./js/player-ui.js" defer></script>
+    <script src="./js/player-audio.js" defer></script>
+    <script src="./js/player.js" defer></script>
+  </body>
+</html>
