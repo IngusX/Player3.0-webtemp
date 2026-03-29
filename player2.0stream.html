@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KS Player 2.0 Top Dark</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="preconnect" href="https://stream.host-cx.net.ar" crossorigin />
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #07111d;
+        --card: #0c1f33;
+        --text: #ffffff;
+        --muted: #cbd5e1;
+        --badge-bg: #ffffff;
+        --badge-text: #000000;
+        --accent: #ff4fa2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 500px;
+        height: 500px;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+        border-radius: 20px;
+        color: var(--text);
+        font-family: "Montserrat", system-ui, sans-serif;
+      }
+
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .layout {
+        width: calc(100% - 2rem);
+        height: calc(100% - 2rem);
+        margin: 1rem;
+        padding: 28px;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        isolation: isolate;
+        border-radius: 20px;
+        background: transparent;
+      }
+
+      .layout::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        background: rgba(7, 17, 29, 0.16);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      .player-card {
+        width: 100%;
+        height: 100%;
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding-top: 0;
+        text-align: center;
+        background: transparent;
+        border: 0;
+        border-radius: 20px;
+        filter: drop-shadow(0 18px 34px rgba(0, 0, 0, 0.42));
+      }
+
+      .cover {
+        width: 320px;
+        height: 320px;
+        margin: 0 0 22px;
+        border-radius: 50%;
+        overflow: hidden;
+        box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+        flex: 0 0 auto;
+      }
+
+      .cover img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+
+      .player-body {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0.35rem 0.75rem;
+        border-radius: 9999px;
+        background: var(--badge-bg);
+        color: var(--badge-text);
+        font-size: 0.75rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.34);
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+      }
+
+      .badge.live .status-dot {
+        background: #e11d48;
+      }
+
+      .track-info {
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .track-title {
+        margin: 0;
+        max-width: 100%;
+        font-size: 1.45rem;
+        font-weight: 800;
+        line-height: 1.15;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        text-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
+      }
+
+      .artist-toggle {
+        max-width: 100%;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+
+      .track-artist {
+        display: inline-block;
+        max-width: 360px;
+        color: var(--muted);
+        font-size: 1rem;
+        line-height: 1.3;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        text-shadow: 0 6px 18px rgba(0, 0, 0, 0.46);
+      }
+
+      .track-artist.expanded {
+        white-space: normal;
+      }
+
+      .artist-toggle-icon,
+      .controls,
+      .volume-row,
+      .volume-hint,
+      .last-tracks,
+      .history,
+      .signature,
+      .theme-toggle {
+        display: none !important;
+      }
+
+      .sr-only-support {
+        position: absolute !important;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    </style>
+  </head>
+
+  <body>
+    <main class="layout" id="app" data-theme="dark">
+      <section class="player-card" id="playerCard" data-theme="dark">
+        <button
+          class="theme-toggle sr-only-support"
+          id="themeToggle"
+          type="button"
+          aria-label="Cambiar tema"
+          aria-pressed="true"
+        >
+          <span id="themeIcon">light_mode</span>
+        </button>
+
+        <figure class="cover">
+          <img
+            id="cover-img"
+            src="https://i.ibb.co/0YDdBgT/bgPlayer.jpg"
+            alt="Portada canción"
+            loading="lazy"
+          />
+        </figure>
+
+        <div class="player-body">
+          <div class="badge" id="source-badge">
+            <span class="status-dot" aria-hidden="true"></span>
+            <span id="badgeText">AUTO DJ</span>
+          </div>
+
+          <div class="track-info" aria-live="polite">
+            <h3 class="track-title" id="track-title">—</h3>
+            <button
+              class="artist-toggle"
+              id="artistToggle"
+              type="button"
+              aria-expanded="false"
+              aria-label="Mostrar artista completo"
+              title="Toca para ver completo"
+            >
+              <span class="track-artist" id="track-artist">—</span>
+              <span class="artist-toggle-icon sr-only-support" id="artistIcon" aria-hidden="true"
+                >expand_more</span
+              >
+            </button>
+          </div>
+
+          <div class="controls sr-only-support">
+            <button class="btn-play" id="btn-play" type="button" aria-label="Play/Pause">
+              <span id="playIcon">play_arrow</span>
+            </button>
+          </div>
+
+          <div class="volume-row sr-only-support">
+            <button
+              class="icon-button mute-toggle"
+              id="muteToggle"
+              type="button"
+              aria-label="Silenciar"
+              aria-pressed="false"
+            >
+              <span id="muteIcon" aria-hidden="true">volume_up</span>
+            </button>
+            <input
+              type="range"
+              id="volume"
+              min="0"
+              max="100"
+              step="1"
+              value="40"
+              aria-label="Volumen"
+            />
+          </div>
+
+          <p class="volume-hint sr-only-support" id="volume-hint" hidden>
+            Usa los botones de volumen del dispositivo.
+          </p>
+
+          <section class="last-tracks mobile-only sr-only-support" aria-labelledby="last-tracks-title-mobile">
+            <h4 class="section-title" id="last-tracks-title-mobile">ÚLTIMAS CANCIONES</h4>
+            <ul id="last-tracks-list" aria-live="polite"></ul>
+          </section>
+        </div>
+
+        <div class="signature sr-only-support">KS PLAYER 2.0 BY SRPUNPUN</div>
+
+        <audio id="player" playsinline autoplay type="audio/mpeg" preload="none"></audio>
+      </section>
+
+      <aside class="history sr-only-support" aria-labelledby="last-tracks-title-desktop">
+        <h3 id="last-tracks-title-desktop">ÚLTIMAS CANCIONES</h3>
+        <div class="queue">
+          <ul id="last-tracks-list-desktop" aria-live="polite"></ul>
+        </div>
+      </aside>
+    </main>
+
+    <script>
+      try {
+        localStorage.setItem("ks_theme", "dark");
+        localStorage.setItem("ks_volume_v2", "100");
+        localStorage.setItem("ks_muted_v2", "false");
+      } catch (_) {}
+    </script>
+
+    <script src="./js/player-core.js" defer></script>
+    <script src="./js/player-device.js" defer></script>
+    <script src="./js/player-height.js" defer></script>
+    <script src="./js/player-native.js" defer></script>
+    <script src="./js/player-ui.js" defer></script>
+    <script src="./js/player-audio.js" defer></script>
+    <script src="./js/player.js" defer></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", async () => {
+        const playerApp = window.KSPlayer;
+        const playerEl = document.getElementById("player");
+        const volumeEl = document.getElementById("volume");
+
+        const forceUiState = () => {
+          try {
+            localStorage.setItem("ks_theme", "dark");
+            localStorage.setItem("ks_volume_v2", "100");
+            localStorage.setItem("ks_muted_v2", "false");
+          } catch (_) {}
+
+          if (volumeEl) volumeEl.value = "100";
+
+          if (playerEl) {
+            playerEl.autoplay = true;
+            playerEl.preload = "auto";
+            playerEl.volume = 1;
+            playerEl.muted = false;
+          }
+
+          playerApp?.ui?.applyTheme?.("dark");
+          playerApp?.ui?.syncMuteUi?.();
+        };
+
+        const directPlayAttempt = async () => {
+          if (!playerEl) return false;
+
+          try {
+            const baseSrc = playerApp?.config?.streamUrl || playerEl.currentSrc || playerEl.src;
+            if (baseSrc) {
+              playerEl.src = `${baseSrc.split("?")[0]}?_=${Date.now()}`;
+            }
+            playerEl.load();
+            await playerEl.play();
+            playerEl.volume = 1;
+            playerEl.muted = false;
+            return !playerEl.paused;
+          } catch (_) {
+            return false;
+          }
+        };
+
+        const unlockAudio = async () => {
+          forceUiState();
+
+          try {
+            await playerApp?.audio?.goLive?.(true);
+          } catch (_) {}
+
+          if (!playerEl?.paused) {
+            playerEl.volume = 1;
+            playerEl.muted = false;
+            return;
+          }
+
+          await directPlayAttempt();
+        };
+
+        forceUiState();
+
+        try {
+          await unlockAudio();
+        } catch (_) {
+          // El autoplay puede ser bloqueado por el navegador.
+        }
+
+        ["load", "pageshow", "focus"].forEach((eventName) => {
+          window.addEventListener(eventName, unlockAudio, { passive: true });
+        });
+
+        document.addEventListener("visibilitychange", () => {
+          if (!document.hidden) {
+            unlockAudio();
+          }
+        });
+
+        ["pointerdown", "touchstart", "click", "keydown"].forEach((eventName) => {
+          window.addEventListener(eventName, unlockAudio, { passive: true });
+        });
+      });
+    </script>
+  </body>
+</html>
