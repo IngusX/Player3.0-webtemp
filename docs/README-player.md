@@ -1,668 +1,416 @@
-# Documentación técnica del player
+# README técnico del player
 
-## 1. Objetivo del proyecto
+## Propósito de este documento
 
-Este proyecto implementa una landing estática para **Konata Station** con tres responsabilidades principales:
+Este archivo documenta **solo la parte técnica del reproductor**. Complementa al `README.md` principal y se enfoca en:
 
-1. mostrar el reproductor de radio,
-2. integrar el widget de Discord,
-3. presentar una página host simple que pueda embebir el player sin duplicar lógica.
+- flujo interno del player,
+- responsabilidades de módulos JS/CSS,
+- contratos de integración embed,
+- bridge nativo,
+- variantes del player y puntos sensibles de mantenimiento.
 
-La solución está construida con **HTML + CSS + JavaScript vanilla**, sin bundler ni framework.
+> Para visión general del repositorio, arranque local y mapa global de archivos, usa primero `../README.md`.
 
----
+## 1. Alcance del player dentro del proyecto
 
-## 2. Arquitectura general
+El player forma parte de una arquitectura **host + embed**:
 
-La arquitectura sigue un patrón **host + embed**.
+| Pieza | Archivo | Función |
+|---|---|---|
+| Host | `index.html` | Inserta el `iframe`, sincroniza altura, integra Discord y sirve de intermediario con `MediaControls` cuando existe contenedor nativo. |
+| Embed principal | `player2.0.html` | Implementa la experiencia completa del reproductor. |
+| Embed compacto | `player2.0stream.html` | Reutiliza la lógica base del player con UI reducida y estrategia de autoplay más agresiva. |
 
-### Host
+Este documento se concentra en las dos variantes embed y en su relación con el host.
 
-La página host es `index.html`.
+## 2. Variantes del player
 
-Sus responsabilidades son:
+| Archivo | Cuándo usarlo | Características |
+|---|---|---|
+| `player2.0.html` | Reproductor principal | UI completa, controles visibles, historial mobile/desktop, selector de tema, mute y volumen. |
+| `player2.0stream.html` | Widget visual / card compacta | Fuerza dark mode, oculta casi toda la UI, fija volumen alto, intenta autoplay y mantiene el stack base de JS. |
 
-- renderizar la landing principal,
-- incrustar `player2.0.html` dentro de un `iframe`,
-- mostrar Discord en la misma página,
-- sincronizar la altura del `iframe`,
-- aplicar el layout externo por breakpoint,
-- mostrar el footer/banner temporal del sitio.
+### Diferencia clave
 
-### Embed
+`player2.0stream.html` **NO es otro player distinto**: es una variante visual/comportamental que sigue apoyándose en la misma base modular (`player-core`, `player-ui`, `player-audio`, etc.).
 
-El reproductor real vive dentro de `player2.0.html`.
+## 3. Contrato de carga del embed
 
-Sus responsabilidades son:
+Tanto `player2.0.html` como `player2.0stream.html` cargan sus scripts en este orden:
 
-- renderizar la UI del player,
-- controlar el elemento `<audio>`,
-- consultar metadata del stream,
-- renderizar historial y estado en vivo,
-- persistir preferencias locales,
-- reportar altura al host cuando cambia el contenido.
+1. `player-core.js`
+2. `player-device.js`
+3. `player-height.js`
+4. `player-native.js`
+5. `player-ui.js`
+6. `player-audio.js`
+7. `player.js`
 
----
+### Por qué importa este orden
 
-## 3. Mapa de archivos
+Los módulos comparten el namespace global `window.KSPlayer`. Si se altera el orden, los módulos posteriores pueden intentar consumir configuración, referencias DOM o helpers que todavía no existen.
 
-### `index.html`
+## 4. Módulos JavaScript del player
 
-Página host.
+| Módulo | Responsabilidad | Por qué existe |
+|---|---|---|
+| `js/player-core.js` | Configuración base, estado compartido, refs DOM, `localStorage` seguro y helpers. | Evita duplicar constantes, contratos y utilidades entre módulos. |
+| `js/player-device.js` | Detección de capacidades reales del dispositivo. | Centraliza heurísticas de touch, pointer, hover y desktop/mobile. |
+| `js/player-height.js` | Comunicación de altura con el host. | Mantiene el `iframe` alineado con la altura real del contenido. |
+| `js/player-native.js` | Bridge hacia `MediaControls` o fallback vía host. | Permite integrar el player web con un contenedor Capacitor/Android. |
+| `js/player-ui.js` | Tema, mute, volumen, render del track, historial y Media Session API. | Separa la lógica visual e interactiva del playback puro. |
+| `js/player-audio.js` | Playback, metadata, polling, refresh y recuperación del stream. | Es el núcleo funcional del player. |
+| `js/player.js` | Bootstrap y cleanup. | Ordena la inicialización y el cierre del player. |
 
-- renderiza logo, player, Discord y footer,
-- contiene la lógica host-side del auto-resize del `iframe`,
-- define reglas JS para altura mínima según breakpoint.
+## 5. Módulos CSS del player
 
-### `index.css`
+| Archivo | Qué resuelve |
+|---|---|
+| `css/player-embed.css` | Reset mínimo del documento embebido: quita márgenes y deja fondo transparente. |
+| `css/player.css` | Layout principal, responsive, controles, historial, estados visuales y temas del player principal. |
+| CSS inline en `player2.0stream.html` | Estilo específico de la variante compacta oscura. |
 
-CSS de la landing host.
+## 6. Flujo interno del player
 
-- controla centrado general,
-- define proporción player/Discord en desktop,
-- limita el ancho del player en tablet,
-- elimina chrome visual innecesario alrededor del `iframe`,
-- estiliza el footer/banner temporal.
+### 6.1 Inicialización
 
-### `player2.0.html`
+Cuando carga el embed:
 
-Markup del reproductor.
+1. `player-core.js` deja listas config, refs y estado compartido.
+2. `player-device.js` evalúa capacidades del entorno y decide si la UI de volumen debe mostrarse.
+3. `player-ui.js` restaura tema, mute, volumen y estados visuales persistidos.
+4. `player-audio.js` configura el elemento `<audio>` y lanza la primera consulta de metadata.
+5. `player-height.js` instala observers y reporta altura al host.
+6. `player.js` coordina el bootstrap general y cleanup en `beforeunload`.
 
-- card principal,
-- portada,
-- badge de estado,
-- título/artista,
-- botón play,
-- mute y volumen,
-- historial mobile y desktop,
-- `<audio>` real.
+#### Diagrama de inicialización
 
-### `player.css`
+```text
+HTML embed
+  -> player-core.js prepara config, DOM y estado
+  -> player-device.js evalúa capacidades del entorno
+  -> player-ui.js restaura tema/volumen/mute/UI
+  -> player-audio.js conecta audio + metadata
+  -> player-height.js instala resize/reportes
+  -> player.js termina bootstrap y cleanup
+```
 
-CSS interno del reproductor.
+### 6.2 Metadata
 
-- layout visual del player,
-- responsive interno,
-- tema claro/oscuro,
-- tratamiento especial para modo embebido,
-- estilos de historial, controles y accesibilidad.
+La metadata sale del endpoint:
 
-### `player-embed.css`
+```text
+https://stream.host-cx.net.ar/api/nowplaying/3
+```
 
-Reset mínimo del embed.
+`fetchAndRender()` se encarga de:
 
-- quita márgenes de `html` y `body`,
-- deja fondo transparente para integrarse mejor con la página host.
+1. abortar requests previas cuando el navegador lo soporta,
+2. hacer `fetch` con `cache: 'no-store'`,
+3. parsear la respuesta,
+4. actualizar track actual, artista, portada, badge e historial,
+5. pedir recálculo de altura,
+6. agendar el siguiente polling.
 
-### `player-core.js`
+### 6.3 Polling
 
-Base compartida del player.
+| Estado de la pestaña | Frecuencia |
+|---|---|
+| Visible | cada `10s` |
+| Oculta | cada `30s` |
 
-- constantes,
-- referencias DOM,
-- estado global,
-- acceso seguro a `localStorage`,
-- utilidades comunes.
+Además, cuando la pestaña vuelve a estar visible, el player intenta reenganchar estado, relanza polling y rearma mecanismos de recuperación.
 
-### `player-device.js`
+#### Diagrama de polling y metadata
 
-Detección de capacidades del dispositivo.
+```text
+fetchAndRender()
+  -> fetch nowplaying (cache: no-store)
+  -> parsea JSON
+  -> actualiza track / artista / portada / historial
+  -> pide recálculo de altura
+  -> agenda próximo poll
+        visible: 10s
+        oculta: 30s
+```
 
-- centraliza heurísticas de touch/pointer/hover,
-- evita repartir detección de plataforma por todo el código,
-- decide si se debe ocultar la UI de volumen.
+### 6.4 Reproducción del stream
 
-### `player-height.js`
+La URL base del stream es:
 
-Comunicación de altura embed ↔ host.
+```text
+https://stream.host-cx.net.ar/listen/konata-station-radio/radio.mp3
+```
 
-- `postMessage`,
-- observers,
-- fallbacks,
-- re-medición del documento,
-- validación de `origin` entre host y embed.
+La función central de reproducción es `goLive(forceLive = false)` y se encarga de:
 
-### `player-native.js`
+- preservar mute/volumen cuando corresponde,
+- reconstruir `src` con cache-busting,
+- forzar recarga del stream si hace falta,
+- invocar `play()`,
+- sincronizar estado visual de la UI.
 
-Puente opcional hacia el contenedor Android del APK.
+#### Diagrama de audio y recuperación
 
-- detecta el plugin nativo `MediaControls`,
-- sincroniza título, artista, artwork y estado play/pause,
-- permite cerrar la notificación nativa cuando corresponde.
+```text
+Usuario / MediaSession / variante stream
+  -> goLive()
+      -> prepara src del MP3
+      -> play()
+      -> actualiza botón/UI
+  -> si hay waiting/stalled/error/emptied
+      -> recover()
+      -> reintento controlado
+      -> watchdog + live refresh
+```
 
-### `player-ui.js`
+### 6.5 Recuperación
 
-Lógica visual del reproductor.
+El player NO depende solo de un `play()` inicial. Tiene varias capas de resiliencia:
 
+- `recover()` para reconectar cuando el audio se degrada,
+- listeners sobre `error`, `emptied`, `waiting`, `stalled` y `seeking`,
+- refresh periódico del stream en sesiones largas,
+- stall watchdog para detectar congelamientos silenciosos.
+
+ESTO ES CLAVE: si alguien toca `player-audio.js` sin entender este flujo, rompe el corazón del sistema.
+
+## 7. Persistencia local y estado UI
+
+### Claves de `localStorage`
+
+| Clave | Uso |
+|---|---|
+| `ks_volume_v2` | Persistencia de volumen |
+| `ks_muted_v2` | Persistencia de mute |
+| `ks_theme` | Tema claro/oscuro |
+| `ks_artist_expanded` | Estado expandido del artista |
+
+### Comportamientos persistidos
+
+- volumen,
+- mute,
 - tema,
-- volumen y mute,
-- título/artista,
-- historial,
-- badge,
-- estados expandibles,
-- integración con Media Session API.
+- expansión del artista.
 
-### `player-audio.js`
+En `player2.0stream.html` algunas de estas preferencias se fuerzan para priorizar la experiencia compacta oscura.
 
-Lógica funcional de audio y metadata.
+## 8. Responsive del player
 
-- reproducción,
-- recuperación,
-- polling,
-- watchdog,
-- render basado en metadata,
-- respuesta a controles play/pause disparados desde Media Session.
+### Responsive del host
 
-### `player.js`
+Aunque el host se documenta en el README principal, afecta al embed porque define el espacio que recibe el `iframe`:
 
-Bootstrap mínimo.
+| Breakpoint | Comportamiento del host |
+|---|---|
+| `<= 599px` | Player arriba, Discord debajo, altura mínima visual del `iframe`. |
+| `600px - 899px` | Player centrado con ancho acotado. |
+| `>= 900px` | Layout en dos columnas con sincronización visual entre player y Discord. |
 
-- coordina inicialización de módulos,
-- ejecuta montaje del player,
-- libera recursos en `beforeunload`.
+### Responsive interno del embed
 
-### `playwright.config.js`
+`css/player.css` adapta el player según ancho y alto disponible:
 
-Configuración de smoke tests.
+- modo base vertical en mobile,
+- compactación extra en pantallas muy angostas,
+- panel lateral de historial en desktop,
+- ajustes especiales cuando la altura es reducida.
 
-- define `testDir`,
-- configura `baseURL`,
-- levanta un server estático con `python3 -m http.server 5501`,
-- reutiliza servidor existente si ya está levantado.
-
-### `tests/player-smoke.spec.js`
-
-Smoke tests de la landing.
-
-- valida render básico,
-- verifica sincronización de altura player/Discord en desktop,
-- verifica límite de ancho del player en tablet.
-
----
-
-## 4. Flujo completo de render
-
-## 4.1 Host
-
-1. `index.html` carga la estructura principal.
-2. Inserta el `iframe` con `src="player2.0.html"`.
-3. Inserta el bloque de Discord.
-4. Inserta el footer temporal al final de la página.
-5. Al cargar el `iframe`, el host solicita la altura real con `postMessage`.
-6. El host ajusta la altura del `iframe` según:
-   - mobile: piso visual de `745px`,
-   - tablet: altura dinámica,
-   - desktop: altura compartida visual con Discord.
-
-## 4.2 Embed
-
-1. `player2.0.html` carga el markup completo del player.
-2. Se cargan en orden los módulos `player-core.js`, `player-device.js`, `player-height.js`, `player-ui.js`, `player-audio.js` y finalmente `player.js` como bootstrap.
-3. Se resuelven:
-   - tema inicial,
-   - volumen y mute persistidos,
-   - visibilidad o no de la UI de volumen,
-   - fuente del stream,
-   - primera consulta de metadata.
-4. El player reporta su altura al host.
-5. Cada cambio relevante de contenido vuelve a reportar altura.
-
----
-
-## 5. Funcionamiento técnico del player
-
-Esta es la parte más importante del sistema.
-
-## 5.1 Configuración base
-
-En `player-core.js` se definen constantes clave:
-
-- `ENDPOINT`: API de metadata
-- `STREAM_URL`: URL del stream MP3
-- claves de `localStorage`
-- intervalos de polling
-- timeout del watchdog de congelamiento
-
-### Endpoint actual
-
-- Metadata: `https://stream.host-cx.net.ar/api/nowplaying/3`
-- Audio: `https://stream.host-cx.net.ar/listen/konata-station-radio/radio.mp3`
-
----
-
-## 5.2 Inicialización
-
-Cuando ocurre `DOMContentLoaded`, el player hace esto en orden:
-
-1. `player-device.js` detecta capacidades reales del dispositivo y decide la política de volumen,
-2. `player-ui.js` resuelve el tema inicial,
-3. `player-ui.js` restaura volumen y mute desde `localStorage`,
-4. `player-audio.js` configura `player.src`,
-5. `player-audio.js` fuerza `preload = 'auto'` en Apple/Android táctil cuando corresponde,
-6. `player-audio.js` ejecuta `fetchAndRender()`,
-7. `player-height.js` instala observers para reportar altura al host.
-
----
-
-## 5.3 Reproducción de audio
-
-La reproducción se gestiona sobre el elemento:
-
-```html
-<audio id="player" playsinline type="audio/mpeg" preload="none"></audio>
-```
-
-### Función `goLive(forceLive = false)`
-
-Es la función central para enganchar el stream en vivo.
-
-Responsabilidades:
-
-- preservar mute previo,
-- preservar volumen previo,
-- recrear `src` con cache-busting cuando hace falta,
-- forzar recarga del stream si se pide `forceLive`,
-- ejecutar `player.play()`,
-- actualizar el icono play/pause.
-
-### Cache busting
-
-Se usa:
-
-```js
-${STREAM_URL}?_=${Date.now()}
-```
-
-Esto evita engancharse a una versión vieja del stream por caché.
-
-### Lógica del botón Play
-
-Cuando el usuario toca Play:
-
-- si estaba pausado, intenta reanudar o reenganchar al vivo,
-- si la pausa fue larga (`>= 60s`), fuerza recarga del stream,
-- si estaba reproduciendo, pausa el audio y actualiza el icono.
-
-### Soporte táctil
-
-Existe un listener adicional en `touchstart` para reducir fricción en móviles.
-
-### Media Session API
-
-Si el navegador/WebView soporta `navigator.mediaSession`, el player:
-
-- publica metadata de la pista actual,
-- publica artwork para la notificación/lock screen,
-- sincroniza `playbackState`,
-- registra handlers para `play`, `pause` y `stop`.
-
-Esto mejora la integración con controles multimedia del sistema, aunque el resultado final sigue dependiendo del soporte real del WebView/Android.
-
-### Integración nativa en el APK
-
-Cuando el player corre dentro del wrapper Capacitor, `player-native.js` intenta hablar con un plugin nativo Android.
-
-Ese puente manda al contenedor:
-
-- título,
-- artista,
-- artwork,
-- estado de reproducción.
-
-Con eso, el APK puede mostrar una notificación multimedia propia con acciones `play`, `pause` y `cerrar`, más cercana a una app nativa que a un WebView puro.
-
----
-
-## 5.4 Recuperación del stream
-
-El player no depende solo de `play()`; implementa varias capas de recuperación.
-
-### `recover()`
-
-Intenta reconectar si el audio está degradado.
-
-Protecciones incluidas:
-
-- no ejecuta si ya está pausado,
-- no ejecuta si ya hay recuperación en curso,
-- throttle temporal para evitar reconexiones agresivas.
-
-### Eventos observados
-
-Se reacciona a:
-
-- `error`
-- `emptied`
-- `waiting`
-- `stalled`
-- `seeking`
-
-### Refresh periódico al vivo
-
-`scheduleLiveRefresh()` fuerza un refresh cada hora mientras el stream está reproduciendo, para reducir drift o sesiones viejas.
-
-### Stall watchdog
-
-`armStallWatchdog()` observa:
-
-- tiempo desde el último `timeupdate`,
-- avance real de `currentTime`,
-- `readyState`.
-
-Si detecta congelamiento silencioso, dispara `recover()`.
-
-### Cambio de visibilidad
-
-Cuando la pestaña vuelve a ser visible:
-
-- se relanza el polling,
-- se intenta recuperar el stream si estaba sonando,
-- se rearma el refresh y el watchdog.
-
----
-
-## 5.5 Metadata y render UI
-
-### `fetchAndRender()`
-
-Es la función principal de actualización visual.
-
-Hace lo siguiente:
-
-1. aborta request previa si el navegador soporta `AbortController`,
-2. ejecuta `fetch` con `cache: 'no-store'`,
-3. valida `response.ok`,
-4. parsea JSON,
-5. actualiza track actual,
-6. actualiza badge de fuente,
-7. actualiza historial,
-8. solicita nuevo reporte de altura,
-9. agenda la próxima ejecución.
-
-### Polling
-
-El polling es adaptativo:
-
-- visible: `10s`
-- pestaña oculta: `30s`
-
-### Render incremental
-
-Para evitar rerender innecesario se usan firmas:
-
-- track actual: `title|artist|art`
-- historial: serialización parcial de entradas
-
-Si la firma no cambia, no se vuelve a renderizar.
-
-### Badge de estado
-
-`updateSourceBadge()` cambia entre:
-
-- `AUTO DJ`
-- nombre del streamer en vivo
-
-según `data.live.is_live`.
-
-### Historial
-
-`updateHistory()` renderiza:
-
-- 3 canciones en mobile,
-- 5 canciones en desktop.
-
-Se construye usando DOM API (`createElement`, `textContent`) para evitar HTML crudo.
-
-### Manejo de error
-
-Si falla metadata:
-
-- se registra el error en consola,
-- se muestra `ERROR AL CARGAR` en los listados,
-- se reintenta vía siguiente ciclo de polling.
-
----
-
-## 5.6 Volumen, mute y preferencias
-
-### Detección de dispositivos
-
-La detección quedó encapsulada en `player-device.js`.
-
-La estrategia ya no depende de una sola señal, sino de una combinación centralizada de:
-
-- `userAgent` para hints de plataforma,
-- `navigator.platform`,
-- `maxTouchPoints`,
-- `pointer: fine/coarse`,
-- `hover` y `any-hover`,
-- capacidad táctil real del entorno.
-
-Con eso se construye un perfil de dispositivo con campos como:
-
-- `isAppleTouch`,
-- `isAndroidTouch`,
-- `touchCapable`,
-- `likelyDesktop`,
-- `shouldHideVolumeUi`.
-
-### Regla práctica
-
-Si el dispositivo tiene UI de volumen poco fiable, se oculta el slider y se muestra un hint para usar los botones físicos.
-
-### Persistencia local
-
-Se usan estas claves:
-
-- `ks_volume_v2`
-- `ks_muted_v2`
-- `ks_theme`
-- `ks_artist_expanded`
-
-### Funciones relevantes
-
-- `restoreVolume()`
-- `persistVolume()`
-- `persistMute()`
-- `toggleMute()`
-- `applyTheme()`
-
----
-
-## 5.7 Tema y UI expandible
-
-### Tema
-
-El tema se resuelve así:
-
-1. si existe valor guardado, se usa,
-2. si no, se usa `prefers-color-scheme`.
-
-Al cambiar tema:
-
-- se actualizan atributos `data-theme`,
-- se actualiza icono,
-- se persiste en `localStorage`,
-- se reporta altura por si cambia el layout.
-
-### Artista expandible
-
-El nombre del artista puede colapsarse o expandirse.
-
-Esto se maneja con:
-
-- `setArtist()`
-- `applyArtistView()`
-- `toggleArtist()`
-
-También se persiste su estado expandido.
-
-### Chips expandibles
-
-Las canciones del historial se renderizan como botones expandibles.
-
-Esto permite:
-
-- mostrar texto truncado por defecto,
-- expandir al click,
-- recalcular altura del embed cuando cambia el alto real.
-
----
-
-## 5.8 Comunicación embed ↔ host
-
-Esta parte mantiene el player integrado dentro del `iframe`.
+## 9. Integración embed ↔ host
 
 ### Del embed al host
 
-El hijo envía:
+El player reporta altura al padre mediante `postMessage` con eventos del tipo:
 
 ```js
-window.parent.postMessage({
+{
   sender: 'ksplayer',
   type: 'ksplayer:height',
   height
-}, parentOrigin)
+}
 ```
 
 ### Del host al embed
 
-El padre puede pedir re-medición con:
+El host puede pedir re-medición con:
 
 ```js
-postMessage({ type: 'ksplayer:request-height' }, playerOrigin)
+{ type: 'ksplayer:request-height' }
 ```
 
-### Validación de origen
+#### Diagrama de `postMessage` y altura
 
-Ahora host y embed validan `event.origin` antes de procesar mensajes.
+```text
+Embed
+  -> calcula altura real del documento
+  -> postMessage { sender: 'ksplayer', type: 'ksplayer:height', height }
+Host (index.html)
+  -> valida event.source + event.origin
+  -> ajusta altura del iframe
+  -> puede reenviar { type: 'ksplayer:request-height' }
+Fallback
+  -> ResizeObserver
+  -> MutationObserver
+  -> medición directa del iframe desde el host
+```
 
-Esto reduce el riesgo de aceptar mensajes de ventanas ajenas cuando el player está embebido.
+### Seguridad actual
 
-### Cuándo se recalcula altura
+Tanto host como embed validan `event.origin` antes de procesar mensajes. Eso es importante porque baja el riesgo de aceptar mensajes ajenos cuando el player vive embebido.
 
-- al cargar,
-- al cambiar historial,
-- al expandir artista,
-- al cambiar tema,
-- al hacer resize,
-- al mutar el DOM en fallback,
-- cuando actúan los observers.
+### Fallbacks de altura
 
-### Fallbacks
-
-Si no hay `ResizeObserver`, se usa:
+Si no hay `ResizeObserver`, el sistema cae en combinaciones de:
 
 - `MutationObserver`,
-- ráfaga de timeouts `[120, 360, 900]`.
+- timeouts en ráfaga,
+- medición directa del documento embebido desde el host cuando el contexto lo permite.
 
----
+## 10. Integración nativa
 
-## 6. Responsive real del proyecto
+`js/player-native.js` permite que el player web hable con un contenedor Capacitor/Android cuando existe:
 
-Hay dos responsives distintos:
+```js
+window.Capacitor?.Plugins?.MediaControls
+```
 
-1. el **responsive del host**,
-2. el **responsive interno del player**.
+### Qué sincroniza
 
-## 6.1 Responsive del host (`index.css`)
+- play,
+- pause,
+- stop,
+- metadata,
+- artwork,
+- estado de reproducción.
 
-### Mobile (`<= 599px`)
+### Dos caminos posibles
 
-- player primero,
-- Discord debajo,
-- `iframe` con piso visual de `745px`,
-- footer al final.
+| Camino | Cuándo ocurre |
+|---|---|
+| Acceso directo al plugin | Cuando el embed tiene acceso al runtime Capacitor. |
+| Fallback vía host | Cuando el embed necesita pedir al host que invoque la acción nativa. |
 
-### Tablet (`600px - 899px`)
+Esto explica por qué `index.html` también contiene lógica de bridge y NO es solo una landing visual.
 
-- player centrado,
-- `iframe` con `max-width: 400px`,
-- altura dinámica real,
-- Discord debajo.
+## 11. Integración y contratos de accesibilidad
 
-### Desktop (`>= 900px`)
+Aspectos ya presentes:
 
-- layout en dos columnas,
-- proporción aproximada `40 / 60` entre player y Discord,
-- altura visual sincronizada entre ambos bloques,
-- footer debajo del contenido principal.
-
-## 6.2 Responsive interno del player (`player.css`)
-
-- `< 360px`: versión más compacta,
-- `< 479px`: la fila de volumen puede envolver,
-- `>= 920px`: aparece panel lateral desktop interno,
-- `max-height: 680px`: modo compacto vertical.
-
----
-
-## 7. Accesibilidad
-
-Aspectos positivos:
-
-- `lang="es"` en ambos HTML,
-- `aria-label` en controles clave,
-- `aria-live="polite"` para contenido dinámico,
-- `aria-expanded` en artista y chips,
+- `lang="es"` en los HTML,
+- `aria-live` en contenido dinámico,
+- `aria-expanded` en artista e historial expandible,
 - `aria-pressed` en tema y mute,
-- `focus-visible` en host y embed,
 - uso de botones reales para acciones interactivas.
 
-Aspectos mejorables:
+Aspectos pendientes o mejorables:
 
-- `postMessage('*')` sigue siendo funcional pero no estricto,
-- no hay validación formal del origen esperado,
-- faltan tests automáticos de accesibilidad y flujos críticos.
+- ampliar cobertura automatizada de accesibilidad,
+- revisar experiencia de autoplay y feedback en bloqueos del navegador,
+- endurecer aún más escenarios extremos de integración embed en terceros.
 
----
+## 12. Dependencias externas del player
 
-## 8. Riesgos técnicos actuales
+| Dependencia | Uso |
+|---|---|
+| `stream.host-cx.net.ar` | Metadata y stream de audio |
+| Google Fonts / Material Icons | Tipografía e iconografía |
+| Imágenes remotas | Cover por defecto y branding |
+| `ks-player-assets` vía jsDelivr | CSS de marca usado por el host |
 
-1. La medición fallback del host depende de que el `iframe` siga siendo same-origin.
-2. Solo hay smoke tests básicos; todavía faltan pruebas más profundas de polling, recuperación y edge cases.
-3. La detección mejoró al centralizarse en un helper de capacidades, pero sigue siendo heurística y no puede eliminar todos los edge cases en navegadores híbridos.
-4. Media Session API mejora integración con notificaciones/lock screen, pero su comportamiento no es uniforme en todos los WebView de Android.
+Si estas dependencias fallan, la UI puede verse correcta localmente pero degradarse funcionalmente en producción.
 
----
+## 13. Zonas sensibles de mantenimiento
 
-## 9. Recomendaciones de evolución
+| Área | Archivo de entrada | Riesgo |
+|---|---|---|
+| Playback y recuperación | `js/player-audio.js` | Romper reconexión, autoplay, watchdog o refresh del vivo. |
+| Contrato global | `js/player-core.js` | Desalinear nombres/refs/config que usan todos los módulos. |
+| Resize del embed | `js/player-height.js` + `index.html` | Cortes visuales, scroll interno o desajuste con Discord. |
+| Bridge nativo | `js/player-native.js` + `index.html` | Desincronización con `MediaControls` o fallos solo visibles en APK/WebView. |
+| Variante compacta | `player2.0stream.html` | Generar expectativas falsas de autoplay o romper el forcing de estado visual. |
 
-## 9.1 Refactor técnico
+## 14. Riesgos técnicos actuales
 
-El player ya quedó separado en módulos por responsabilidad:
+1. El autoplay sigue dependiendo de políticas del navegador o WebView; ningún hack del lado frontend puede garantizarlo.
+2. Parte del fallback de medición sigue siendo más fiable cuando host y embed operan en contexto compatible.
+3. La detección de dispositivos está mejor encapsulada, pero continúa siendo heurística.
+4. Los smoke tests existentes validan estructura y layout, no cubren a fondo playback, metadata ni integración nativa.
 
-- `player-core.js`
-- `player-device.js`
-- `player-height.js`
-- `player-ui.js`
-- `player-audio.js`
-- `player.js` como bootstrap
+## 15. Troubleshooting del player
 
-Las siguientes mejoras de refactor razonables serían:
+### Autoplay bloqueado
 
-- extraer tests de helpers puros,
-- desacoplar aún más audio de render,
-- aislar serialización de metadata y firmas en un módulo propio.
+| Síntoma | Causa probable | Qué revisar |
+|---|---|---|
+| El player carga pero no suena hasta tocar la pantalla | Política de autoplay del navegador/WebView bloquea `play()` sin interacción | Confirmar si el primer `play()` cae en `catch`; probar con gesto real del usuario; recordar que `player2.0stream.html` solo aumenta intentos de unlock, no garantiza éxito. |
 
-## 9.2 Hardening
+Notas útiles:
 
-- restringir `postMessage` por `origin`,
-- documentar contrato del endpoint `nowplaying`,
-- mejorar estados visuales de error/carga,
-- ampliar los smoke tests de Playwright con casos de reproducción, metadata y resize extremo.
+- `player2.0stream.html` fuerza `autoplay`, `preload="auto"`, volumen `100` y varios eventos (`load`, `pageshow`, `focus`, `pointerdown`, `touchstart`, `click`, `keydown`) para intentar destrabar audio.
+- `player2.0.html` mantiene un comportamiento más conservador y depende más del gesto explícito del usuario.
 
-## 9.3 Producto
+### El `iframe` no ajusta altura
 
-- agregar observabilidad mínima si se publica en producción real.
+| Síntoma | Causa probable | Qué revisar |
+|---|---|---|
+| Queda espacio vacío o aparece scroll interno | El host no recibe `ksplayer:height`, o el `origin` esperado no coincide | Verificar `PLAYER_ORIGIN` en `index.html`, `document.referrer` / `parentOrigin` en `js/player-height.js`, y que el host pueda recibir `postMessage` del embed real. |
+| Ajusta tarde o de forma inestable | El navegador cayó a fallback sin `ResizeObserver` | Revisar si está actuando `MutationObserver` + burst de timeouts; considerar que el ajuste será menos fino. |
 
----
+### Metadatos o portada no actualizan
 
-## 10. Resumen ejecutivo
+| Síntoma | Causa probable | Qué revisar |
+|---|---|---|
+| El track quedó viejo o la portada no cambia | Falló `fetchAndRender()`, el endpoint devolvió error o la pestaña estuvo oculta mucho tiempo | Validar `https://stream.host-cx.net.ar/api/nowplaying/3`, revisar errores `HTTP` o `fetch` en consola, y confirmar que al volver la pestaña visible se relance `schedulePoll(true)`. |
 
-El sistema actual funciona bien como un reproductor embebido con host estático:
+Notas útiles:
 
-- el **host** controla composición, integración visual, altura y layout externo,
-- el **embed** controla audio, metadata, historial, tema y accesibilidad,
-- el player implementa polling inteligente, render incremental y recuperación del stream,
-- la solución ya está optimizada para integración embebida, aunque sigue necesitando modularización y hardening para producción formal.
+- El polling usa `10s` visible y `30s` oculta.
+- El request se hace con `cache: 'no-store'` y además se usa `urlNoCache(...)`, así que si los datos siguen viejos el problema suele estar aguas arriba, no en caché local simple.
+
+### Stream sin sonido
+
+| Síntoma | Causa probable | Qué revisar |
+|---|---|---|
+| La UI dice reproducir pero no se escucha | Volumen/mute, autoplay bloqueado o stream degradado | Revisar `ks_muted_v2`, `ks_volume_v2`, estado real de `<audio>`, eventos `waiting/stalled/emptied/error` y si `recover()` se está disparando. |
+| En móvil no aparece UI de volumen | Decisión deliberada por heurística de dispositivo | Confirmar `ns.device.profile.shouldHideVolumeUi`; en ese caso el diseño espera usar botones físicos del dispositivo. |
+| En contenedor nativo no suena igual que web | Está entrando el bridge `MediaControls` en vez del `<audio>` del navegador | Verificar si `window.Capacitor?.Plugins?.MediaControls` existe y si `ns.native.play()` responde correctamente. |
+
+### Diferencias entre `player2.0.html` y `player2.0stream.html`
+
+| Tema | `player2.0.html` | `player2.0stream.html` |
+|---|---|---|
+| Objetivo | experiencia completa | widget/card compacta |
+| Tema | conmutación normal claro/oscuro | dark forzado |
+| UI visible | controles e historial completos | UI muy reducida |
+| Volumen | persistido según preferencias | forzado a `100` |
+| Mute | persistido | forzado a `false` |
+| Autoplay | conservador | agresivo, con múltiples intentos de unlock |
+
+Regla práctica: si el problema aparece SOLO en `player2.0stream.html`, casi siempre está ligado a sus overrides de tema/volumen/autoplay y no al stack base compartido.
+
+## 16. Guía rápida para quien mantiene el player
+
+### Si vas a tocar...
+
+| Objetivo | Empieza por |
+|---|---|
+| tema, volumen, mute o render | `js/player-ui.js` |
+| stream, polling o recuperación | `js/player-audio.js` |
+| resize dentro del `iframe` | `js/player-height.js` |
+| soporte Android/Capacitor | `js/player-native.js` + host en `index.html` |
+| variante compacta | `player2.0stream.html` |
+
+### Orden recomendado de lectura técnica
+
+1. `player2.0.html`
+2. `js/player-core.js`
+3. `js/player-ui.js`
+4. `js/player-audio.js`
+5. `js/player-height.js`
+6. `js/player-native.js`
+7. `player2.0stream.html`
+
+## 17. Resumen ejecutivo
+
+El player está razonablemente bien separado por responsabilidades: core compartido, device heuristics, resize, bridge nativo, UI, audio y bootstrap. El mayor valor técnico del sistema está en `player-audio.js`, porque ahí viven metadata, resiliencia y reproducción real. Este documento queda como referencia profunda del embed; el `README.md` principal queda reservado para mapa del proyecto y onboarding general.
